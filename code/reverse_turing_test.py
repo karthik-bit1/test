@@ -84,8 +84,6 @@ def init_game_state():
         "current_question": "",
         "ai_answers": [],
         "human_response": "",
-        "history": [],
-        "ai_players": [],
         "human_response_input": "",
         "clear_human_input": False,
     }
@@ -104,34 +102,11 @@ def startgame():
         if st.button("Start the game"):
             st.session_state.started = True
             st.session_state.human_name = rd.choice(random_names)
-            # initialize persistent AI players (same names, personalities, models every round)
-            names = rd.sample(random_names, 4)
-            personalities = rd.sample(random_personality, 4)
-            models = [PRIMARY_MODEL, SECONDARY_MODEL, PRIMARY_MODEL, SECONDARY_MODEL]
-            st.session_state.ai_players = [
-                {"name": n, "personality": p, "model": m}
-                for n, p, m in zip(names, personalities, models)
-            ]
             generate_round()
             st.rerun()
     else:
         st.write(f"Round {st.session_state.round_number}")
         st.write(f"You are playing as: {st.session_state.human_name}")
-        # Render history: each past round shows AI responses first, then the human response
-        if st.session_state.history:
-            st.subheader("Previous rounds")
-            for entry in st.session_state.history:
-                st.write(f"Round {entry['round_number']}")
-                st.write(f"Question: {entry['question']}")
-                st.write("AI responses:")
-                for ai_answer in entry.get('ai_answers', []):
-                    st.write(f"**{ai_answer['name']}** ({ai_answer['personality']}) - Model: {ai_answer['model']}")
-                    st.write(f"{ai_answer['response']}")
-                    st.divider()
-                if entry.get('human_response'):
-                    st.write(f"{st.session_state.human_name if entry.get('human_response') else ''}: {entry.get('human_response')}")
-                st.markdown("---")
-
         st.subheader("Question")
         st.write(st.session_state.current_question)
 
@@ -152,8 +127,6 @@ def resetgame():
         st.session_state.current_question = ""
         st.session_state.ai_answers = []
         st.session_state.human_response = ""
-        st.session_state.history = []
-        st.session_state.ai_players = []
         st.session_state.human_response_input = ""
         st.session_state.clear_human_input = True
         st.rerun()
@@ -175,22 +148,10 @@ def humanplayer():
         st.write(f"{st.session_state.human_name}: {st.session_state.human_response}")
 
     if st.button("Next round"):
-        save_current_round()
         st.session_state.human_response = ""
         st.session_state.clear_human_input = True
         generate_round()
         st.rerun()
-
-
-def save_current_round():
-    # Save the current round (question, AI answers, and human response) to history
-    entry = {
-        "round_number": st.session_state.round_number,
-        "question": st.session_state.current_question,
-        "ai_answers": st.session_state.ai_answers.copy(),
-        "human_response": st.session_state.human_response,
-    }
-    st.session_state.history.append(entry)
 
 def build_messages(name, personality, question):
     system_prompt = (
@@ -204,16 +165,9 @@ def build_messages(name, personality, question):
 
 
 def responseAI(question):
-    # Use persisted AI players if available, otherwise fall back to sampling
-    players = st.session_state.get("ai_players") or []
-    if not players:
-        names = rd.sample(random_names, 4)
-        personalities = rd.sample(random_personality, 4)
-        models = [PRIMARY_MODEL, SECONDARY_MODEL, PRIMARY_MODEL, SECONDARY_MODEL]
-        players = [
-            {"name": n, "personality": p, "model": m}
-            for n, p, m in zip(names, personalities, models)
-        ]
+    names = rd.sample(random_names, 4)
+    personalities = rd.sample(random_personality, 4)
+    models = [PRIMARY_MODEL, SECONDARY_MODEL, PRIMARY_MODEL, SECONDARY_MODEL]
 
     client = ChatCompletionsClient(
         endpoint=endpoint,
@@ -221,10 +175,7 @@ def responseAI(question):
     )
 
     ai_answers = []
-    for player in players:
-        name = player.get("name")
-        personality = player.get("personality")
-        model_name = player.get("model")
+    for name, personality, model_name in zip(names, personalities, models):
         try:
             completion = client.complete(
                 messages=build_messages(name, personality, question),
@@ -236,10 +187,10 @@ def responseAI(question):
         except AzureError:
             response_text = "I am having trouble responding right now."
         ai_answers.append({
-            "name": name,
+            "name": name, 
             "response": response_text,
             "personality": personality,
-            "model": model_name,
+            "model": model_name
         })
 
     return ai_answers

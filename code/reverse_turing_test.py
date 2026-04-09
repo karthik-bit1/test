@@ -112,7 +112,9 @@ def startgame():
 
         st.subheader("AI responses")
         for ai_answer in st.session_state.ai_answers:
-            st.write(f"{ai_answer['name']}: {ai_answer['response']}")
+            st.write(f"**{ai_answer['name']}** ({ai_answer['personality']}) - Model: {ai_answer['model']}")
+            st.write(f"{ai_answer['response']}")
+            st.divider()
 
         humanplayer()
         # Call responseAI and display its returned responses as well
@@ -190,7 +192,12 @@ def responseAI(question):
             response_text = completion.choices[0].message.content
         except AzureError:
             response_text = "I am having trouble responding right now."
-        ai_answers.append({"name": name, "response": response_text})
+        ai_answers.append({
+            "name": name, 
+            "response": response_text,
+            "personality": personality,
+            "model": model_name
+        })
 
     return ai_answers
 

@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 endpoint = "https://models.github.ai/inference"
 PRIMARY_MODEL = "openai/gpt-4.1"
 SECONDARY_MODEL = "meta/Llama-3.2-90B-Vision-Instruct"
+MAX_ROUNDS = 3
 
 load_dotenv()
 token = os.getenv("GITHUB_TOKEN")
@@ -73,13 +74,15 @@ questions = [
     "What is a piece of media that has influenced you significantly and why?",
     "You enter a nondescript room. What is the first thing you are going to do?",
 ]
+
+
 def init_game_state():
     defaults = {
         "started": False,
         "human_name": "",
+        "ai_names": [],
         "round_number": 0,
         "current_question": "",
-        "ai_names": [],
         "ai_personalities": [],
         "ai_answers": [],
         "history": [],
@@ -94,8 +97,12 @@ def init_game_state():
 
 def generate_personalities():
     return rd.sample(random_personality, 4)
-def generate_questions():
-    return rd.sample(questions, 3)
+
+
+def askquestion():
+    return rd.choice(questions)
+
+
 def humanplayer(name):
     st.text_input(f"{name}'s response:", key=name)
 
@@ -112,6 +119,17 @@ def build_messages(name, personality, question):
 def responseAI(names, personalities, question):
     models = [PRIMARY_MODEL, SECONDARY_MODEL, PRIMARY_MODEL, SECONDARY_MODEL]
 
+    if not token:
+        return [
+            {
+                "name": name,
+                "response": "I am having trouble responding right now.",
+                "personality": personality,
+                "model": model_name,
+            }
+            for name, personality, model_name in zip(names, personalities, models)
+        ]
+
     client = ChatCompletionsClient(
         endpoint=endpoint,
         credential=AzureKeyCredential(token),
@@ -127,31 +145,75 @@ def responseAI(names, personalities, question):
                 model=model_name,
             )
             response_text = completion.choices[0].message.content
+            if not isinstance(response_text, str):
+                response_text = str(response_text)
         except AzureError:
             response_text = "I am having trouble responding right now."
         ai_answers.append({
-            "name": name, 
+            "name": name,
             "response": response_text,
             "personality": personality,
             "model": model_name
         })
     return ai_answers
 
+
+def save_current_round():
+    st.session_state.history.append({
+        "round_number": st.session_state.round_number,
+        "question": st.session_state.current_question,
+        "ai_answers": st.session_state.ai_answers.copy(),
+        "human_response": st.session_state.human_response,
+        "human_name": st.session_state.human_name,
+    })
+
 def generate_round():
     st.session_state.round_number += 1
-    sampled_names = rd.sample(random_names, 5)
-    name = sampled_names[0]
-    names = sampled_names[1:]
-    personalities = generate_personalities()
-    questions = generate_questions()
-    st.header("AI Players")
-    for question in questions:
-        st.session_state.current_question = question
-        ai_responses = responseAI(names, personalities, question)
-        for i, response in enumerate(ai_responses):
-            st.text(f"{names[i]}: {response}")
-    st.header("Human Players")
-    humanplayer(name)
+    st.session_state.current_question = askquestion()
+    st.session_state.ai_answers = responseAI(
+        st.session_state.ai_names,
+        st.session_state.ai_personalities,
+        st.session_state.current_question,
+    )
+
+
+def render_round():
+    st.write(f"Round {st.session_state.round_number}/{MAX_ROUNDS}")
+    st.write(f"You are playing as: {st.session_state.human_name}")
+
+    st.subheader("Question")
+    st.write(st.session_state.current_question)
+
+    st.subheader("AI responses")
+    for ai in st.session_state.ai_answers:
+        st.write(f"**{ai['name']}** ({ai['personality']}) - Model: {ai['model']}")
+        st.write(ai["response"])
+        st.divider()
+
+    if st.session_state.clear_human_input:
+        st.session_state.human_response_input = ""
+        st.session_state.clear_human_input = False
+
+    st.text_input("Your response:", key="human_response_input")
+    if st.button("Submit response"):
+        st.session_state.human_response = st.session_state.human_response_input.strip()
+
+    if st.session_state.human_response:
+        st.write(f"{st.session_state.human_name}: {st.session_state.human_response}")
+        next_label = "Finish game" if st.session_state.round_number >= MAX_ROUNDS else "Next round"
+        if st.button(next_label):
+            save_current_round()
+            st.session_state.human_response = ""
+            st.session_state.clear_human_input = True
+            if st.session_state.round_number < MAX_ROUNDS:
+                generate_round()
+            else:
+                st.session_state.started = False
+            st.rerun()
+    else:
+        next_label = "Finish game" if st.session_state.round_number >= MAX_ROUNDS else "Next round"
+        st.button(next_label, disabled=True)
+        st.info("Submit your response before proceeding to the next round.")
 
 def start_game():
     st.set_page_config(page_title="Reverse Turing Test", page_icon="🤖", layout="centered")
@@ -164,12 +226,15 @@ def start_game():
     if not st.session_state.started:
         if st.button("Start the game"):
             st.session_state.started = True
+            st.session_state.human_name = rd.choice(random_names)
+            st.session_state.ai_names = rd.sample(
+                [name for name in random_names if name != st.session_state.human_name],
+                4,
+            )
+            st.session_state.ai_personalities = generate_personalities()
             generate_round()
             st.rerun()
     else:
-            st.write(f"Round {st.session_state.round_number}")
-            st.write(f"You are playing as: {st.session_state.human_name}")
-            st.subheader("Question")
-            st.write(st.session_state.current_question)
+        render_round()
 if __name__ == "__main__":
     start_game()

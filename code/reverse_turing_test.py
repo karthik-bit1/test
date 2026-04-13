@@ -75,6 +75,10 @@ questions = [
 ]
 def init_game_state():
     defaults = {
+        "started": False,
+        "human_name": "",
+        "round_number": 0,
+        "current_question": "",
         "ai_names": [],
         "ai_personalities": [],
         "ai_answers": [],
@@ -85,7 +89,8 @@ def init_game_state():
     }
     for key, value in defaults.items():
         if key not in st.session_state:
-             st.session_state[key] = value
+            st.session_state[key] = value
+
 
 def generate_personalities():
     return rd.sample(random_personality, 4)
@@ -118,7 +123,7 @@ def responseAI(names, personalities, question):
             completion = client.complete(
                 messages=build_messages(name, personality, question),
                 temperature=1.0,
-                max_tokens=70,
+                max_tokens=50,
                 model=model_name,
             )
             response_text = completion.choices[0].message.content
@@ -133,6 +138,7 @@ def responseAI(names, personalities, question):
     return ai_answers
 
 def generate_round():
+    st.session_state.round_number += 1
     sampled_names = rd.sample(random_names, 5)
     name = sampled_names[0]
     names = sampled_names[1:]
@@ -140,6 +146,7 @@ def generate_round():
     questions = generate_questions()
     st.header("AI Players")
     for question in questions:
+        st.session_state.current_question = question
         ai_responses = responseAI(names, personalities, question)
         for i, response in enumerate(ai_responses):
             st.text(f"{names[i]}: {response}")
@@ -160,8 +167,9 @@ def start_game():
             generate_round()
             st.rerun()
     else:
-        st.write(f"Round {st.session_state.round_number}")
-        
-
+            st.write(f"Round {st.session_state.round_number}")
+            st.write(f"You are playing as: {st.session_state.human_name}")
+            st.subheader("Question")
+            st.write(st.session_state.current_question)
 if __name__ == "__main__":
     start_game()

@@ -238,3 +238,9 @@ def start_game():
         render_round()
 if __name__ == "__main__":
     start_game()
+
+
+# To run this code, make sure you have the required libraries installed:
+# pip install streamlit azure-ai-inference python-dotenv  
+# Then, set your GITHUB_TOKEN in a .env file or as an environment variable, and run:
+# STREAMLIT_SERVER_ADDRESS=0.0.0.0 STREAMLIT_SERVER_PORT=8503 streamlit run reverse_turing_test.py

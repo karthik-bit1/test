@@ -222,7 +222,7 @@ def start_game():
     st.info("There are 4 AI players and you are the only human. Answer each question convincingly, then continue to the next round.")
     init_game_state()
     if not token:
-        st.warning("GITHUB_TOKEN not set — AI responses may fail. Set GITHUB_TOKEN in your environment.")
+        st.warning("GITHUB_TOKEN not set AI responses may fail. Set GITHUB_TOKEN in your environment.")
     if not st.session_state.started:
         if st.button("Start the game"):
             st.session_state.started = True
@@ -238,8 +238,6 @@ def start_game():
         render_round()
 if __name__ == "__main__":
     start_game()
-
-
 # To run this code, make sure you have the required libraries installed:
 # pip install streamlit azure-ai-inference python-dotenv  
 # Then, set your GITHUB_TOKEN in a .env file or as an environment variable, and run:

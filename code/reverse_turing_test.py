@@ -96,8 +96,15 @@ def init_game_state():
 
 
 def generate_personalities():
-    return rd.sample(random_personality, 4)
-
+    # Sample 12 unique personalities (3 for each of 4 AIs)
+    all_personalities = rd.sample(random_personality, 12)
+    # Group them: each AI gets 3 personalities
+    return [
+        f"{all_personalities[0]}, {all_personalities[1]}, and {all_personalities[2]}",
+        f"{all_personalities[3]}, {all_personalities[4]}, and {all_personalities[5]}",
+        f"{all_personalities[6]}, {all_personalities[7]}, and {all_personalities[8]}",
+        f"{all_personalities[9]}, {all_personalities[10]}, and {all_personalities[11]}"
+    ]
 
 def askquestion():
     return rd.choice(questions)
@@ -141,7 +148,7 @@ def responseAI(names, personalities, question):
             completion = client.complete(
                 messages=build_messages(name, personality, question),
                 temperature=1.0,
-                max_tokens=50,
+                max_tokens=100,
                 model=model_name,
             )
             response_text = completion.choices[0].message.content

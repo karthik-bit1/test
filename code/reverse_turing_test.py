@@ -89,6 +89,12 @@ def init_game_state():
         "human_response": "",
         "human_response_input": "",
         "clear_human_input": False,
+         # voting state
+        "phase": "answer",       # "answer" | "voting" | "result"
+        "votes": {},             # { name: vote_count }
+        "human_vote": "",        # who the human voted for
+        "vote_result": "",       # name of eliminated player
+        "eliminated": [],        # all names removed so far
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -110,8 +116,23 @@ def askquestion():
     return rd.choice(questions)
 
 
-def humanplayer(name):
-    st.text_input(f"{name}'s response:", key=name)
+def humanplayer():
+    if st.session_state.phase == "answer":
+        if st.session_state.clear_human_input:
+            st.session_state.human_response_input = ""
+            st.session_state.clear_human_input = False
+
+        st.text_input("Your response:", key="human_response_input", max_chars=255)
+        if st.button("Submit response"):
+            st.session_state.human_response = st.session_state.human_response_input.strip()
+            st.session_state.phase = "voting"
+            st.rerun()
+
+    elif st.session_state.phase == "voting":
+        callvote()
+
+    elif st.session_state.phase == "result":
+        show_result()
 
 def build_messages(name, personality, question):
     system_prompt = (
@@ -177,14 +198,23 @@ def save_current_round():
 def generate_round():
     st.session_state.round_number += 1
     st.session_state.current_question = askquestion()
+    active_names = [
+        n for n in st.session_state.ai_names
+        if n not in st.session_state.eliminated
+    ]
+    active_personalities = [
+        st.session_state.ai_personalities[st.session_state.ai_names.index(n)]
+        for n in active_names
+    ]
     st.session_state.ai_answers = responseAI(
-        st.session_state.ai_names,
-        st.session_state.ai_personalities,
-        st.session_state.current_question,
+        active_names, active_personalities, st.session_state.current_question
     )
 
-
 def render_round():
+    if st.button("Reset the game"):
+        resetgame()
+        st.rerun()
+
     st.write(f"Round {st.session_state.round_number}/{MAX_ROUNDS}")
     st.write(f"You are playing as: {st.session_state.human_name}")
 
@@ -201,26 +231,179 @@ def render_round():
         st.session_state.human_response_input = ""
         st.session_state.clear_human_input = False
 
-    st.text_input("Your response:", key="human_response_input")
-    if st.button("Submit response"):
-        st.session_state.human_response = st.session_state.human_response_input.strip()
+    if st.session_state.phase == "answer":
+        st.text_input("Your response:", key="human_response_input", max_chars=255)
+        if st.button("Submit response"):
+            response = st.session_state.human_response_input.strip()
+            if not response:
+                st.warning("Please enter a response before submitting.")
+            else:
+                st.session_state.human_response = response
+                st.session_state.phase = "voting"
+                st.rerun()
+    elif st.session_state.phase == "voting":
+        callvote()
+    else:
+        show_result()
+    
+    
 
-    if st.session_state.human_response:
-        st.write(f"{st.session_state.human_name}: {st.session_state.human_response}")
+
+def resetgame():
+    st.session_state.started = False
+    st.session_state.human_name = ""
+    st.session_state.ai_names = []
+    st.session_state.ai_personalities = []
+    st.session_state.round_number = 0
+    st.session_state.current_question = ""
+    st.session_state.ai_answers = []
+    st.session_state.human_response = ""
+    st.session_state.history = []
+    st.session_state.human_response_input = ""
+    st.session_state.clear_human_input = True
+    st.session_state.phase = "answer"
+    st.session_state.votes = {}
+    st.session_state.human_vote = ""
+    st.session_state.vote_result = ""
+    st.session_state.eliminated = []
+
+
+def callvote():
+    st.subheader("Voting Phase")
+    st.write(f"**{st.session_state.human_name}:** {st.session_state.human_response}")
+    st.write("Who do you think the AI's will vote for? Select a name to vote them out.")
+
+    # Only show players still in the game
+    active_ai = [
+        a["name"] for a in st.session_state.ai_answers
+        if a["name"] not in st.session_state.eliminated
+    ]
+
+    if not active_ai:
+        st.session_state.vote_result = st.session_state.human_name
+        st.session_state.votes = {st.session_state.human_name: 1}
+        st.session_state.phase = "result"
+        st.rerun()
+
+    human_vote = st.radio("Cast your vote:", active_ai, key="human_vote_radio")
+
+    if st.button("Submit vote"):
+        all_answers = st.session_state.ai_answers + [{
+            "name": st.session_state.human_name,
+            "response": st.session_state.human_response,
+        }]
+        eliminated, votes = tally_votes(human_vote, all_answers)
+        st.session_state.vote_result = eliminated
+        st.session_state.votes = votes
+        st.session_state.eliminated.append(eliminated)
+
+        # If an AI was eliminated, remove them from active AI answers
+        if eliminated != st.session_state.human_name:
+            st.session_state.ai_answers = [
+                a for a in st.session_state.ai_answers
+                if a["name"] != eliminated
+            ]
+
+        st.session_state.phase = "result"
+        st.rerun()
+
+def tally_votes(human_vote, all_answers):
+    # Initialize vote counts for every active player
+    active_names = [
+        a["name"] for a in all_answers
+        if a["name"] not in st.session_state.eliminated
+        or a["name"] == st.session_state.human_name
+    ]
+    votes = {name: 0 for name in active_names}
+
+    # Count human's vote
+    if human_vote in votes:
+        votes[human_vote] += 1
+
+    # Each AI votes for who they think is the human
+    for ai in st.session_state.ai_answers:
+        if ai["name"] in st.session_state.eliminated:
+            continue
+        voted_for = ai_vote(
+            st.session_state.current_question,
+            all_answers,
+            ai["name"],
+            ai["personality"],
+        )
+        match = next((n for n in votes if n.lower() == voted_for.lower()), None)
+        if match:
+            votes[match] += 1
+        else:
+            # Fallback if the AI returns an unrecognized name
+            votes[rd.choice(list(votes.keys()))] += 1
+
+    eliminated = max(votes, key=votes.get)
+    return eliminated, votes
+
+def ai_vote(question, all_answers, voter_name, voter_personality):
+    """Ask an AI to look at all answers and guess who the human is."""
+    if not token:
+        return rd.choice([a["name"] for a in all_answers])
+
+    answers_text = "\n".join([f"{a['name']}: {a['response']}" for a in all_answers])
+    prompt = (
+        f"You are {voter_name}. Your personality is: {voter_personality}. "
+        f"You are playing a social deduction game. The question asked was: '{question}'\n"
+        f"Here are all the player answers:\n{answers_text}\n"
+        "Which player do you think is the human? Reply with ONLY their name, nothing else."
+    )
+    client = ChatCompletionsClient(endpoint=endpoint, credential=AzureKeyCredential(token))
+    try:
+        completion = client.complete(
+            messages=[SystemMessage(prompt), UserMessage("Who is the human?")],
+            temperature=0.7,
+            max_tokens=10,
+            model=PRIMARY_MODEL,
+        )
+        return completion.choices[0].message.content.strip()
+    except AzureError:
+        return rd.choice([a["name"] for a in all_answers])
+
+
+def show_result():
+    eliminated = st.session_state.vote_result
+    votes = st.session_state.votes
+
+    st.subheader("Vote Results")
+    for name, count in sorted(votes.items(), key=lambda x: -x[1]):
+        st.write(f"{name}: {count} vote(s)")
+
+    st.write(f"**{eliminated}** has been eliminated!")
+
+    # Check win/lose conditions
+    remaining_ai = [
+        a for a in st.session_state.ai_answers
+        if a["name"] not in st.session_state.eliminated
+    ]
+
+    if eliminated == st.session_state.human_name:
+        st.error("You were voted out! The AIs win. 🤖")
+        if st.button("Play again"):
+            resetgame()
+            st.rerun()
+    elif len(remaining_ai) == 0:
+        st.success("All AIs have been eliminated! You win! 🎉")
+        if st.button("Play again"):
+            resetgame()
+            st.rerun()
+    else:
+        st.info(f"{len(remaining_ai)} AI(s) remaining.")
         next_label = "Finish game" if st.session_state.round_number >= MAX_ROUNDS else "Next round"
         if st.button(next_label):
             save_current_round()
             st.session_state.human_response = ""
             st.session_state.clear_human_input = True
+            st.session_state.phase = "answer"
             if st.session_state.round_number < MAX_ROUNDS:
                 generate_round()
             else:
                 st.session_state.started = False
             st.rerun()
-    else:
-        next_label = "Finish game" if st.session_state.round_number >= MAX_ROUNDS else "Next round"
-        st.button(next_label, disabled=True)
-        st.info("Submit your response before proceeding to the next round.")
 
 def start_game():
     st.set_page_config(page_title="Reverse Turing Test", page_icon="🤖", layout="centered")
